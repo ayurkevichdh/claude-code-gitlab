@@ -5,6 +5,7 @@
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "lint-fix": "prettier --write .",
     "install-hooks": "bun run scripts/install-hooks.sh",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
@@ -23,6 +24,7 @@
     "@types/bun": "1.2.11",
     "@types/node": "^20.0.0",
     "@types/node-fetch": "^2.6.12",
+    "nock": "^14.0.0",
     "prettier": "3.5.3",
     "typescript": "^5.8.3"
   }

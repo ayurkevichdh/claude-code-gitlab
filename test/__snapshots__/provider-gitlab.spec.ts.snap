@@ -1,0 +1,9 @@
+// Bun Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`GitLabProvider retrieves diff between refs 1`] = `""`;
+
+exports[`GitLabProvider creates progress comment 1`] = `
+{
+  "body": "Work started",
+}
+`;
