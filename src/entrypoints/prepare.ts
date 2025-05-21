@@ -6,31 +6,38 @@
  */
 
 import * as core from "@actions/core";
+import { appendFileSync } from "fs";
 import { setupGitHubToken } from "../github/token";
 import { checkTriggerAction } from "../github/validation/trigger";
 import { checkHumanActor } from "../github/validation/actor";
 import { checkWritePermissions } from "../github/validation/permissions";
-import { createInitialComment } from "../github/operations/comments/create-initial";
+import {
+  createJobRunLink,
+  createCommentBody,
+} from "../github/operations/comments/common";
 import { setupBranch } from "../github/operations/branch";
 import { updateTrackingComment } from "../github/operations/comments/update-with-branch";
 import { prepareMcpConfig } from "../mcp/install-mcp-server";
 import { createPrompt } from "../create-prompt";
-import { createOctokit } from "../github/api/client";
+import { createOctokit, type Octokits } from "../github/api/client";
 import { fetchGitHubData } from "../github/data/fetcher";
-import { parseGitHubContext } from "../github/context";
+import type { ParsedGitHubContext } from "../github/context";
+import { getProvider } from "../providers/provider-factory";
+import type { IProvider } from "../providers/IProvider";
 
-async function run() {
+export async function run(
+  provider: IProvider,
+  context: ParsedGitHubContext,
+  octokit: Octokits,
+) {
   try {
     // Step 1: Setup GitHub token
     const githubToken = await setupGitHubToken();
-    const octokit = createOctokit(githubToken);
-
-    // Step 2: Parse GitHub context (once for all operations)
-    const context = parseGitHubContext();
+    const octokitClient = octokit ?? createOctokit(githubToken);
 
     // Step 3: Check write permissions
     const hasWritePermissions = await checkWritePermissions(
-      octokit.rest,
+      octokitClient.rest,
       context,
     );
     if (!hasWritePermissions) {
@@ -48,26 +55,36 @@ async function run() {
     }
 
     // Step 5: Check if actor is human
-    await checkHumanActor(octokit.rest, context);
+    await checkHumanActor(octokitClient.rest, context);
 
     // Step 6: Create initial tracking comment
-    const commentId = await createInitialComment(octokit.rest, context);
+    const jobRunLink = createJobRunLink(
+      context.repository.owner,
+      context.repository.repo,
+      context.runId,
+    );
+    const initialBody = createCommentBody(jobRunLink);
+    const commentId = await provider.createProgressComment(initialBody);
+    const githubOutput = process.env.GITHUB_OUTPUT;
+    if (githubOutput) {
+      appendFileSync(githubOutput, `claude_comment_id=${commentId}\n`);
+    }
 
     // Step 7: Fetch GitHub data (once for both branch setup and prompt creation)
     const githubData = await fetchGitHubData({
-      octokits: octokit,
+      octokits: octokitClient,
       repository: `${context.repository.owner}/${context.repository.repo}`,
       prNumber: context.entityNumber.toString(),
       isPR: context.isPR,
     });
 
     // Step 8: Setup branch
-    const branchInfo = await setupBranch(octokit, githubData, context);
+    const branchInfo = await setupBranch(octokitClient, githubData, context);
 
     // Step 9: Update initial comment with branch link (only for issues that created a new branch)
     if (branchInfo.claudeBranch) {
       await updateTrackingComment(
-        octokit,
+        octokitClient,
         context,
         commentId,
         branchInfo.claudeBranch,
@@ -98,5 +115,6 @@ async function run() {
 }
 
 if (import.meta.main) {
-  run();
+  const { provider, context, octokits } = getProvider();
+  run(provider, context as ParsedGitHubContext, octokits!);
 }
