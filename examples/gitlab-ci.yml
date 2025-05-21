@@ -1,0 +1,14 @@
+stages:
+  - claude
+
+claude-code:
+  stage: claude
+  image: node:20
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+  script:
+    - npx claude-code-action
+  variables:
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    GITLAB_HOST: $CI_SERVER_URL
+    ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
