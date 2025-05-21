@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { createOctokit } from "../github/api/client";
+import type { Octokits } from "../github/api/client";
 import * as fs from "fs/promises";
 import {
   updateCommentBody,
@@ -9,21 +9,25 @@ import {
 import {
   parseGitHubContext,
   isPullRequestReviewCommentEvent,
+  type ParsedGitHubContext,
 } from "../github/context";
 import { GITHUB_SERVER_URL } from "../github/api/config";
 import { checkAndDeleteEmptyBranch } from "../github/operations/branch-cleanup";
+import { getProvider } from "../providers/provider-factory";
+import type { IProvider } from "../providers/IProvider";
 
-async function run() {
+export async function run(
+  provider: IProvider,
+  context: ParsedGitHubContext,
+  octokit: Octokits,
+) {
   try {
     const commentId = parseInt(process.env.CLAUDE_COMMENT_ID!);
-    const githubToken = process.env.GITHUB_TOKEN!;
     const claudeBranch = process.env.CLAUDE_BRANCH;
     const defaultBranch = process.env.DEFAULT_BRANCH || "main";
     const triggerUsername = process.env.TRIGGER_USERNAME;
 
-    const context = parseGitHubContext();
     const { owner, repo } = context.repository;
-    const octokit = createOctokit(githubToken);
 
     const serverUrl = GITHUB_SERVER_URL;
     const jobUrl = `${serverUrl}/${owner}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
@@ -193,23 +197,9 @@ async function run() {
 
     const updatedBody = updateCommentBody(commentInput);
 
-    // Update the comment using the appropriate API
+    // Update the comment using the provider
     try {
-      if (isPRReviewComment) {
-        await octokit.rest.pulls.updateReviewComment({
-          owner,
-          repo,
-          comment_id: commentId,
-          body: updatedBody,
-        });
-      } else {
-        await octokit.rest.issues.updateComment({
-          owner,
-          repo,
-          comment_id: commentId,
-          body: updatedBody,
-        });
-      }
+      await provider.updateComment(commentId, updatedBody);
       console.log(
         `✅ Updated ${isPRReviewComment ? "PR review" : "issue"} comment ${commentId} with job link`,
       );
@@ -228,4 +218,7 @@ async function run() {
   }
 }
 
-run();
+if (import.meta.main) {
+  const { provider, context, octokits } = getProvider();
+  run(provider, context as ParsedGitHubContext, octokits!);
+}
