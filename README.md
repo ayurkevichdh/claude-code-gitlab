@@ -61,6 +61,20 @@ jobs:
           # assignee_trigger: "claude"
 ```
 
+## GitLab Usage
+
+Set these variables in your GitLab CI/CD settings so the action can comment on
+merge requests and push changes:
+
+- `GITLAB_TOKEN` – Personal access token with API scope.
+- `GITLAB_HOST` – Base URL of your GitLab instance, e.g. `https://gitlab.com`.
+- `CI_PROJECT_ID` – ID of the project containing the merge request.
+- `CI_MERGE_REQUEST_IID` – IID of the merge request to operate on.
+- `ANTHROPIC_API_KEY` – Your Anthropic API key.
+
+See [`examples/gitlab-ci.yml`](./examples/gitlab-ci.yml) for a complete
+pipeline example.
+
 ## Inputs
 
 | Input                 | Description                                                                                                          | Required | Default                      |
