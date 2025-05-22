@@ -3,6 +3,8 @@
 import * as core from "@actions/core";
 import { writeFile, mkdir } from "fs/promises";
 import type { FetchDataResult } from "../github/data/fetcher";
+import { fetchGitLabData } from "../gitlab/data/fetcher";
+import type { ParsedGitLabContext } from "../gitlab/context";
 import {
   formatContext,
   formatBody,
@@ -596,11 +598,26 @@ export async function createPrompt(
   defaultBranch: string | undefined,
   claudeBranch: string | undefined,
   githubData: FetchDataResult,
-  context: ParsedGitHubContext,
+  context: ParsedGitHubContext | ParsedGitLabContext,
 ) {
   try {
+    let data = githubData;
+    if ((process.env.CI_PLATFORM || "github") === "gitlab") {
+      const glContext = context as ParsedGitLabContext;
+      if (!glContext.mrIid) {
+        throw new Error("GitLab merge request IID is required");
+      }
+      const token = process.env.GITLAB_TOKEN!;
+      data = (await fetchGitLabData({
+        token,
+        projectId: glContext.projectId,
+        mrIid: glContext.mrIid,
+        host: glContext.host,
+      })) as unknown as FetchDataResult;
+    }
+
     const preparedContext = prepareContext(
-      context,
+      context as ParsedGitHubContext,
       claudeCommentId.toString(),
       defaultBranch,
       claudeBranch,
@@ -609,7 +626,7 @@ export async function createPrompt(
     await mkdir("/tmp/claude-prompts", { recursive: true });
 
     // Generate the prompt
-    const promptContent = generatePrompt(preparedContext, githubData);
+    const promptContent = generatePrompt(preparedContext, data);
 
     // Log the final prompt to console
     console.log("===== FINAL PROMPT =====");
