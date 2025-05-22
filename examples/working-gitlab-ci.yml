@@ -1,0 +1,59 @@
+# Working GitLab CI configuration for Claude Code Review
+# Copy this to your GitLab repository as .gitlab-ci.yml
+
+stages:
+  - claude
+
+variables:
+  CI_PLATFORM: "gitlab"
+
+claude-code:
+  stage: claude
+  image: node:20
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+  before_script:
+    - npm install -g bun
+    - apt-get update && apt-get install -y curl git
+  script:
+    - git clone https://github.com/ayurkevichdh/claude-code-gitlab.git claude-action
+    - cd claude-action && bun install
+    - echo "🔧 Step 1 Running Claude preparation..."
+    - export CLAUDE_COMMENT_ID=$(bun run src/entrypoints/prepare.ts | grep "Comment ID:" | cut -d' ' -f3)
+    - echo "Captured Comment ID $CLAUDE_COMMENT_ID"
+    - bun run src/entrypoints/update-progress.ts "Setting up workspace" true
+    - echo "🔍 Step 2 Verifying prompt generation..."
+    - test -f "/tmp/claude-prompts/claude-prompt.txt" || (echo "❌ No prompt file generated" && exit 1)
+    - echo "✅ Prompt file generated successfully"
+    - bun run src/entrypoints/update-progress.ts "Analyzing request" true
+    - echo "🤖 Step 3 Running Claude API analysis..."
+    - bun run src/entrypoints/call-claude-api.ts
+    - bun run src/entrypoints/update-progress.ts "Implementing changes" true
+    - echo "📝 Step 4 Posting inline review comments..."
+    - bun run src/entrypoints/claude-reviewer.ts
+    - bun run src/entrypoints/update-progress.ts "Running tests" true
+    - echo "📦 Step 5 Archiving results..."
+    - cp claude-output.json /builds/$CI_PROJECT_PATH/ || echo "No output file to copy"
+    - cp claude-review-results.json /builds/$CI_PROJECT_PATH/ || echo "No review results to copy"
+    - echo "✅ Claude review complete!"
+    
+  variables:
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+    CI_PROJECT_ID: $CI_PROJECT_ID
+    CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
+    CI_SERVER_URL: $CI_SERVER_URL
+    CI_PROJECT_PATH: $CI_PROJECT_PATH
+    CI_PIPELINE_URL: $CI_PIPELINE_URL
+    DIRECT_PROMPT: "Please analyze this merge request and provide feedback on code quality, potential issues, and suggestions for improvement"
+    ANTHROPIC_MODEL: "claude-3-7-sonnet-20250219"
+    
+  artifacts:
+    paths:
+      - claude-output.json
+      - claude-review-results.json
+    expire_in: 1 week
+    when: always
+    
+  timeout: 30 minutes
