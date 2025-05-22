@@ -65,15 +65,17 @@ jobs:
 
 Follow these steps to run the action in GitLab CI/CD:
 
-1. **Create a personal access token**
-   - Navigate to **User Settings → Access Tokens**.
+1. **Create a personal or project access token**
+   - Navigate to **User Settings → Access Tokens** (or **Project → Access Tokens**).
    - Create a token with the **api** scope.
    - Add it to your project variables as `GITLAB_TOKEN`.
-2. **Configure project variables**
+2. **Configure CI variables**
    - `GITLAB_TOKEN` – token from step&nbsp;1.
    - `ANTHROPIC_API_KEY` – your Anthropic API key.
-   - `CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID` and `CI_SERVER_URL` are provided by GitLab.
-3. **Invoke the action in your pipeline**
+   - `CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID` and `CI_SERVER_URL` are provided by GitLab for merge request pipelines.
+3. **(Optional) Add a webhook**
+   - Create a [project webhook](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html) for **Merge request events** and **Comments** to trigger the pipeline when the trigger phrase is used.
+4. **Invoke the action in your pipeline**
    ```yaml
    npx claude-code-action --provider gitlab --project-id $CI_PROJECT_ID \
    --mr-iid $CI_MERGE_REQUEST_IID --gitlab-host $CI_SERVER_URL
@@ -82,8 +84,21 @@ Follow these steps to run the action in GitLab CI/CD:
    - Open merge requests are checked out directly.
    - Closed or merged requests create a new `claude/mr-<iid>-TIMESTAMP` branch.
 
+To obtain `project_id` outside CI you can query the API:
+
+```bash
+curl --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  "$CI_SERVER_URL/api/v4/projects?search=my-group%2Fmy-project" | jq '.[0].id'
+```
+
 See [`examples/gitlab-ci.yml`](./examples/gitlab-ci.yml) for a complete
 pipeline example.
+
+### Differences from GitHub
+
+- No GitLab App integration. All comments and commits use your `GITLAB_TOKEN` identity.
+- Only merge request workflows are supported; issue events and status checks from GitHub are not available.
+- Some advanced features like automatic PR links and signed commits rely on GitHub APIs and are not currently implemented for GitLab.
 
 ## Inputs
 
