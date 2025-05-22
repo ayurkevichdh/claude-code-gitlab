@@ -1,6 +1,6 @@
 import { $ } from "bun";
-import fetch from "node-fetch";
-import { IProvider } from "./IProvider";
+import fetch, { type RequestInit } from "node-fetch";
+import type { IProvider } from "./IProvider";
 import type { ParsedGitLabContext } from "../gitlab/context";
 
 export class GitLabProvider implements IProvider {
@@ -9,7 +9,7 @@ export class GitLabProvider implements IProvider {
     private context: ParsedGitLabContext,
   ) {}
 
-  private async request(path: string, options: fetch.RequestInit = {}) {
+  private async request(path: string, options: RequestInit = {}) {
     const url = `${this.context.host}/api/v4${path}`;
     const res = await fetch(url, {
       ...options,

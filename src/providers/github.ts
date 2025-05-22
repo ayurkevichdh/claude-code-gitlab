@@ -1,7 +1,7 @@
 import { $ } from "bun";
 import type { Octokits } from "../github/api/client";
 import type { ParsedGitHubContext } from "../github/context";
-import { IProvider } from "./IProvider";
+import type { IProvider } from "./IProvider";
 
 export class GitHubProvider implements IProvider {
   constructor(

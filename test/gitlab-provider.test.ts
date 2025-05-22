@@ -19,10 +19,7 @@ function mockShell(outputs: string[] = []) {
   const commands: string[] = [];
   let index = 0;
   const original = bun.$;
-  const mockFn = (
-    strings: TemplateStringsArray,
-    ...expressions: any[]
-  ) => {
+  const mockFn = (strings: TemplateStringsArray, ...expressions: any[]) => {
     const cmd = strings.reduce((acc, str, i) => {
       const expr = i < expressions.length ? expressions[i] : "";
       const val = Array.isArray(expr) ? expr.join(" ") : String(expr);
@@ -33,7 +30,11 @@ function mockShell(outputs: string[] = []) {
     return { quiet: async () => ({ stdout: Buffer.from(stdout) }) } as any;
   };
   bun.$ = mockFn as any;
-  shellSpy = { restore: () => { bun.$ = original; } } as any;
+  shellSpy = {
+    restore: () => {
+      bun.$ = original;
+    },
+  } as any;
   return commands;
 }
 
@@ -49,7 +50,9 @@ describe("GitLabProvider", () => {
 
   test("createProgressComment uses correct endpoint", async () => {
     mockShell();
-    ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
+    ({ GitLabProvider } = await import(
+      `../src/providers/gitlab?${Math.random()}`
+    ));
     const provider = new GitLabProvider(token, context);
     fetchSpy = jest.fn().mockResolvedValue({ id: 42 });
     (provider as any).request = async (path: string, options: any) => {
@@ -72,7 +75,9 @@ describe("GitLabProvider", () => {
 
   test("updateComment uses PUT with correct body", async () => {
     mockShell();
-    ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
+    ({ GitLabProvider } = await import(
+      `../src/providers/gitlab?${Math.random()}`
+    ));
     const provider = new GitLabProvider(token, context);
     fetchSpy = jest.fn().mockResolvedValue({});
     (provider as any).request = async (path: string, options: any) => {
@@ -94,7 +99,9 @@ describe("GitLabProvider", () => {
 
   test("addInlineComment posts with position info", async () => {
     const commands = mockShell(["abc123\n"]);
-    ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
+    ({ GitLabProvider } = await import(
+      `../src/providers/gitlab?${Math.random()}`
+    ));
     const provider = new GitLabProvider(token, context);
     fetchSpy = jest.fn().mockResolvedValue({ notes: [{ id: 7 }] });
     (provider as any).request = async (path: string, options: any) => {
@@ -126,7 +133,9 @@ describe("GitLabProvider", () => {
 
   test("pushFixupCommit runs git commands", async () => {
     const commands = mockShell(["", "", "abc123\n", ""]);
-    ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
+    ({ GitLabProvider } = await import(
+      `../src/providers/gitlab?${Math.random()}`
+    ));
     const provider = new GitLabProvider(token, context);
     const sha = await provider.pushFixupCommit("fix msg");
 
@@ -141,7 +150,9 @@ describe("GitLabProvider", () => {
 
   test("getDiff runs git diff", async () => {
     let commands = mockShell(["diff\n"]);
-    ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
+    ({ GitLabProvider } = await import(
+      `../src/providers/gitlab?${Math.random()}`
+    ));
     let provider = new GitLabProvider(token, context);
     const diff = await provider.getDiff("base", "head");
     expect(diff).toBe("diff\n");
@@ -149,7 +160,9 @@ describe("GitLabProvider", () => {
 
     restoreSpies();
     commands = mockShell(["diff2\n"]);
-    ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
+    ({ GitLabProvider } = await import(
+      `../src/providers/gitlab?${Math.random()}`
+    ));
     provider = new GitLabProvider(token, context);
     const diff2 = await provider.getDiff("base", "head", "file.txt");
     expect(diff2).toBe("diff2\n");

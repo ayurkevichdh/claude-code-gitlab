@@ -23,7 +23,7 @@ describe("setupGitLabToken", () => {
     originalEnv = { ...process.env };
     originalArgv = [...process.argv];
     process.env = {};
-    process.argv = [originalArgv[0], originalArgv[1]];
+    process.argv = [originalArgv[0]!, originalArgv[1]!];
     setOutputSpy = spyOn(core, "setOutput").mockImplementation(() => {});
     consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
   });
