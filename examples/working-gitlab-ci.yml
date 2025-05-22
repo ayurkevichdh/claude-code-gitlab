@@ -30,6 +30,8 @@ claude-code:
     - echo "🤖 Step 3 Running Claude API analysis..."
     - bun run src/entrypoints/call-claude-api.ts
     - bun run src/entrypoints/update-progress.ts "Implementing changes" true
+    - echo "📝 Step 4 Debugging Claude response..."
+    - bun run src/entrypoints/debug-claude-response.ts
     - echo "📝 Step 4 Posting inline review comments..."
     - bun run src/entrypoints/claude-reviewer.ts
     - bun run src/entrypoints/update-progress.ts "Running tests" true

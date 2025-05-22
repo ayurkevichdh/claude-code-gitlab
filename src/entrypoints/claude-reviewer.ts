@@ -21,6 +21,11 @@ type ReviewSummary = {
 };
 
 async function parseClaudeReview(response: string): Promise<ReviewSummary> {
+  console.log("🔍 Claude's full response for debugging:");
+  console.log("=".repeat(80));
+  console.log(response);
+  console.log("=".repeat(80));
+  
   // Parse Claude's response to extract inline comments and summary
   const inlineComments: ReviewComment[] = [];
   let overallSummary = "";
@@ -45,7 +50,45 @@ async function parseClaudeReview(response: string): Promise<ReviewSummary> {
       comment: comment.trim(),
       severity
     });
+    console.log(`📝 Found inline comment: ${file}:${line} - ${severity}`);
   }
+
+  // Try alternative patterns if the primary one didn't work
+  if (inlineComments.length === 0) {
+    console.log("🔄 Primary pattern failed, trying alternative patterns...");
+    
+    // Try pattern without brackets: FILE: path LINE: number - Description
+    const altPattern1 = /FILE:\s*([^\s]+)\s+LINE:\s*(\d+)\s*-\s*(.+?)(?=\n(?:FILE:|$|##))/gs;
+    while ((match = altPattern1.exec(response)) !== null) {
+      const [, file, line, comment] = match;
+      inlineComments.push({
+        file: file.trim(),
+        line: parseInt(line),
+        comment: comment.trim(),
+        severity: "suggestion"
+      });
+      console.log(`📝 Found alt inline comment: ${file}:${line}`);
+    }
+    
+    // Try even simpler pattern: filename:line - comment
+    if (inlineComments.length === 0) {
+      const altPattern2 = /([^\s]+):(\d+)\s*-\s*(.+?)(?=\n(?:[^\s]+:\d+|$|##))/gs;
+      while ((match = altPattern2.exec(response)) !== null) {
+        const [, file, line, comment] = match;
+        if (file.includes('.') && !file.includes(' ')) { // Basic file validation
+          inlineComments.push({
+            file: file.trim(),
+            line: parseInt(line),
+            comment: comment.trim(),
+            severity: "suggestion"
+          });
+          console.log(`📝 Found simple inline comment: ${file}:${line}`);
+        }
+      }
+    }
+  }
+
+  console.log(`📊 Total inline comments found: ${inlineComments.length}`);
 
   // Extract overall summary (everything after "## Overall Summary" or similar)
   const summaryMatch = response.match(/##\s*(?:Overall\s*)?Summary\s*\n([\s\S]*?)(?:\n##|$)/i);
