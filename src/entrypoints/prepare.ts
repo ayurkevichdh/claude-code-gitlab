@@ -173,27 +173,93 @@ export async function run(
       );
       core.setOutput("mcp_config", mcpConfig);
     } else {
-      // GitLab-specific steps - simplified for now
-      // TODO: Implement GitLab data fetching and prompt creation
-      console.log("GitLab mode - simplified prompt creation");
+      // GitLab-specific steps
+      console.log("GitLab mode - fetching MR data and creating enhanced prompt");
       
-      // For now, create a basic prompt file
-      const fs = require("fs");
-      const path = require("path");
-      const promptDir = "/tmp/claude-prompts";
-      if (!fs.existsSync(promptDir)) {
-        fs.mkdirSync(promptDir, { recursive: true });
+      const gitlabContext = context as ParsedGitLabContext;
+      const gitlabToken = process.env.GITLAB_TOKEN!;
+      
+      try {
+        // Import GitLab data fetcher
+        const { fetchGitLabMRData } = await import("../gitlab/data/fetcher");
+        const mrData = await fetchGitLabMRData(gitlabToken, gitlabContext);
+        
+        // Create enhanced prompt with actual MR data
+        const fs = require("fs");
+        const path = require("path");
+        const promptDir = "/tmp/claude-prompts";
+        if (!fs.existsSync(promptDir)) {
+          fs.mkdirSync(promptDir, { recursive: true });
+        }
+        
+        const enhancedPrompt = `You are Claude, an AI assistant helping with GitLab merge requests.
+
+## Merge Request Context
+
+**Title:** ${mrData.title}
+**Description:** ${mrData.description || "No description provided"}
+**Source Branch:** ${mrData.sourceBranch} → **Target Branch:** ${mrData.targetBranch}
+**State:** ${mrData.state}
+**Project:** ${gitlabContext.projectId} on ${gitlabContext.host}
+
+## Code Changes
+
+${mrData.changes.map(change => `
+### ${change.new_file ? '📄 New File' : change.deleted_file ? '🗑️ Deleted File' : change.renamed_file ? '📝 Renamed File' : '✏️ Modified File'}: \`${change.new_path}\`
+
+\`\`\`diff
+${change.diff}
+\`\`\`
+`).join('\n')}
+
+## Existing Comments/Discussions
+
+${mrData.discussions.length > 0 ? mrData.discussions.map(discussion => 
+  discussion.notes.map(note => `
+**${note.author.name}** (${note.created_at}):
+${note.body}
+`).join('\n')
+).join('\n---\n') : "No existing comments"}
+
+## Your Task
+
+${process.env.DIRECT_PROMPT || "Please analyze this merge request and provide feedback on code quality, potential issues, and suggestions for improvement."}
+
+Please provide:
+1. Code review feedback
+2. Potential issues or bugs
+3. Suggestions for improvement
+4. Security considerations (if applicable)
+5. Performance considerations (if applicable)
+
+Be specific and reference line numbers or file names when providing feedback.`;
+        
+        fs.writeFileSync(path.join(promptDir, "claude-prompt.txt"), enhancedPrompt);
+        console.log("✅ Enhanced prompt created with MR data");
+        
+      } catch (error) {
+        console.error("⚠️ Failed to fetch MR data, using basic prompt:", error);
+        
+        // Fallback to basic prompt
+        const fs = require("fs");
+        const path = require("path");
+        const promptDir = "/tmp/claude-prompts";
+        if (!fs.existsSync(promptDir)) {
+          fs.mkdirSync(promptDir, { recursive: true });
+        }
+        
+        const basicPrompt = `You are Claude, an AI assistant helping with GitLab merge requests.
+
+Project ID: ${gitlabContext.projectId}
+MR IID: ${gitlabContext.mrIid || "N/A"}  
+Host: ${gitlabContext.host}
+
+${process.env.DIRECT_PROMPT || "Please analyze the current merge request and help with any requested changes."}
+
+Note: Could not fetch detailed MR data due to API limitations.`;
+        
+        fs.writeFileSync(path.join(promptDir, "claude-prompt.txt"), basicPrompt);
       }
-      
-      const basicPrompt = `You are Claude, an AI assistant helping with GitLab merge requests.
-
-Project ID: ${(context as ParsedGitLabContext).projectId}
-MR IID: ${(context as ParsedGitLabContext).mrIid || "N/A"}
-Host: ${(context as ParsedGitLabContext).host}
-
-Please analyze the current merge request and help with any requested changes.`;
-      
-      fs.writeFileSync(path.join(promptDir, "claude-prompt.txt"), basicPrompt);
       
       // Set empty MCP config for GitLab
       core.setOutput("mcp_config", "");
