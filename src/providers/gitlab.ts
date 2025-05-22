@@ -60,6 +60,71 @@ export class GitLabProvider implements IProvider {
     );
   }
 
+  private async getMRDiffData() {
+    if (!this.context.mrIid) throw new Error("mrIid required");
+    
+    // Get MR details and changes
+    const [mrData, changesData] = await Promise.all([
+      this.request(`/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}`),
+      this.request(`/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}/changes`)
+    ]);
+    
+    return { mrData, changesData };
+  }
+  
+  private findLineInDiff(filePath: string, lineNumber: number, diffData: any): { old_line: number | null, new_line: number | null } | null {
+    // Find the file change in the diff data
+    const fileChange = diffData.changes?.find((change: any) => 
+      change.new_path === filePath || change.old_path === filePath
+    );
+    
+    if (!fileChange || !fileChange.diff) {
+      console.warn(`No diff found for file: ${filePath}`);
+      return null;
+    }
+    
+    // Parse the diff to find line mappings
+    const diffLines = fileChange.diff.split('\n');
+    let oldLineNum = 0;
+    let newLineNum = 0;
+    
+    for (const diffLine of diffLines) {
+      if (diffLine.startsWith('@@')) {
+        // Parse hunk header like @@ -1,4 +1,6 @@
+        const match = diffLine.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
+        if (match) {
+          oldLineNum = parseInt(match[1]) - 1;
+          newLineNum = parseInt(match[2]) - 1;
+        }
+        continue;
+      }
+      
+      if (diffLine.startsWith('-')) {
+        oldLineNum++;
+        // This is a deleted line
+        if (oldLineNum === lineNumber) {
+          return { old_line: oldLineNum, new_line: null };
+        }
+      } else if (diffLine.startsWith('+')) {
+        newLineNum++;
+        // This is an added line
+        if (newLineNum === lineNumber) {
+          return { old_line: null, new_line: newLineNum };
+        }
+      } else if (diffLine.startsWith(' ') || diffLine === '') {
+        // Unchanged line
+        oldLineNum++;
+        newLineNum++;
+        if (newLineNum === lineNumber || oldLineNum === lineNumber) {
+          return { old_line: oldLineNum, new_line: newLineNum };
+        }
+      }
+    }
+    
+    // If not found in diff, assume it's a new line
+    return { old_line: null, new_line: lineNumber };
+  }
+
   async addInlineComment(
     filePath: string,
     line: number,
@@ -68,29 +133,38 @@ export class GitLabProvider implements IProvider {
     if (!this.context.mrIid) throw new Error("mrIid required");
     
     try {
-      // Get the MR details to find base and head SHAs
-      const mrData = await this.request(
-        `/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}`
-      );
+      console.log(`🔍 Adding inline comment to ${filePath}:${line}`);
       
-      const { stdout: headSha } = await $`git rev-parse HEAD`.quiet();
-      const headShaClean = headSha.toString().trim();
+      // Get MR and diff data
+      const { mrData, changesData } = await this.getMRDiffData();
       
-      // Get proper SHA values from MR data
-      const baseSha = mrData.diff_refs?.base_sha || headShaClean;
-      const startSha = mrData.diff_refs?.start_sha || headShaClean;
+      if (!mrData.diff_refs) {
+        throw new Error("No diff_refs found in MR data");
+      }
       
-      // Use the correct API format based on your curl example
+      const { base_sha, start_sha, head_sha } = mrData.diff_refs;
+      
+      // Find the line position in the diff
+      const linePosition = this.findLineInDiff(filePath, line, changesData);
+      if (!linePosition) {
+        throw new Error(`Line ${line} not found in diff for ${filePath}`);
+      }
+      
+      console.log(`📍 Line position: old=${linePosition.old_line}, new=${linePosition.new_line}`);
+      
+      // Create position object matching GitLab's requirements
       const position = {
-        base_sha: baseSha,
-        start_sha: startSha,
-        head_sha: headShaClean,
+        base_sha,
+        start_sha,
+        head_sha,
         old_path: filePath,
         new_path: filePath,
         position_type: "text",
-        old_line: null,
-        new_line: line
+        old_line: linePosition.old_line,
+        new_line: linePosition.new_line
       };
+      
+      console.log(`📝 Creating discussion with position:`, position);
       
       const data = await this.request(
         `/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}/discussions`,
@@ -102,11 +176,14 @@ export class GitLabProvider implements IProvider {
           }),
         },
       );
-      return data.notes?.[0]?.id ?? data.id;
+      
+      const commentId = data.notes?.[0]?.id ?? data.id;
+      console.log(`✅ Created inline comment ${commentId}`);
+      return commentId;
       
     } catch (error) {
       // Fallback: post as regular comment instead of inline comment
-      console.warn(`Failed to post inline comment on ${filePath}:${line}, posting as regular comment:`, error);
+      console.warn(`❌ Failed to post inline comment on ${filePath}:${line}:`, error);
       
       const fallbackBody = `**Comment on \`${filePath}\` line ${line}:**
 
