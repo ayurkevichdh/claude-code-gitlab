@@ -75,12 +75,19 @@ Follow these steps to run the action in GitLab CI/CD:
    - `CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID` and `CI_SERVER_URL` are provided by GitLab for merge request pipelines.
 3. **(Optional) Add a webhook**
    - Create a [project webhook](https://docs.gitlab.com/ee/user/project/integrations/webhooks.html) for **Merge request events** and **Comments** to trigger the pipeline when the trigger phrase is used.
-4. **Invoke the action in your pipeline**
+4. **Clone this repository and run the action**
+   - Bun must be installed on the runner.
    ```yaml
-   npx claude-code-action --provider gitlab --project-id $CI_PROJECT_ID \
-   --mr-iid $CI_MERGE_REQUEST_IID --gitlab-host $CI_SERVER_URL
+   script:
+     - git clone https://github.com/anthropics/claude-code-action.git
+     - cd claude-code-action
+     - bun install
+     - bun bin/claude-code-action.ts --provider gitlab \
+         --project-id $CI_PROJECT_ID --mr-iid $CI_MERGE_REQUEST_IID
    ```
-4. **Branch handling**
+   - Use `--gitlab-token` or the `GITLAB_TOKEN` env var to specify the token.
+   - The host defaults to `https://gitlab.com` and can be changed with `--gitlab-host` or `GITLAB_HOST`.
+5. **Branch handling**
    - Open merge requests are checked out directly.
    - Closed or merged requests create a new `claude/mr-<iid>-TIMESTAMP` branch.
 
