@@ -63,14 +63,21 @@ jobs:
 
 ## GitLab Usage
 
-Set these variables in your GitLab CI/CD settings so the action can comment on
-merge requests and push changes:
+Follow these steps to run the action in GitLab CI/CD:
 
-- `GITLAB_TOKEN` – Personal access token with API scope.
-- `GITLAB_HOST` – Base URL of your GitLab instance, e.g. `https://gitlab.com`.
-- `CI_PROJECT_ID` – ID of the project containing the merge request.
-- `CI_MERGE_REQUEST_IID` – IID of the merge request to operate on.
-- `ANTHROPIC_API_KEY` – Your Anthropic API key.
+1. **Create a personal access token**
+   - Navigate to **User Settings → Access Tokens**.
+   - Create a token with the **api** scope.
+   - Add it to your project variables as `GITLAB_TOKEN`.
+2. **Configure project variables**
+   - `GITLAB_TOKEN` – token from step&nbsp;1.
+   - `ANTHROPIC_API_KEY` – your Anthropic API key.
+   - `CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID` and `CI_SERVER_URL` are provided by GitLab.
+3. **Invoke the action in your pipeline**
+   ```yaml
+   npx claude-code-action --provider gitlab --project-id $CI_PROJECT_ID \
+   --mr-iid $CI_MERGE_REQUEST_IID --gitlab-host $CI_SERVER_URL
+   ```
 
 See [`examples/gitlab-ci.yml`](./examples/gitlab-ci.yml) for a complete
 pipeline example.
