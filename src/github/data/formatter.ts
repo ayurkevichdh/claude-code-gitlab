@@ -7,6 +7,10 @@ import type {
 } from "../types";
 import type { GitHubFileWithSHA } from "./fetcher";
 
+export function stripHtmlComments(text: string): string {
+  return text.replace(/<!--[\s\S]*?-->/g, "");
+}
+
 export function formatContext(
   contextData: GitHubPullRequest | GitHubIssue,
   isPR: boolean,
@@ -33,7 +37,7 @@ export function formatBody(
   body: string,
   imageUrlMap: Map<string, string>,
 ): string {
-  let processedBody = body;
+  let processedBody = stripHtmlComments(body);
 
   // Replace image URLs with local paths
   for (const [originalUrl, localPath] of imageUrlMap) {
@@ -49,7 +53,7 @@ export function formatComments(
 ): string {
   return comments
     .map((comment) => {
-      let body = comment.body;
+      let body = stripHtmlComments(comment.body);
 
       // Replace image URLs with local paths if we have a mapping
       if (imageUrlMap && body) {
@@ -81,7 +85,7 @@ export function formatReviewComments(
     ) {
       const comments = review.comments.nodes
         .map((comment) => {
-          let body = comment.body;
+          let body = stripHtmlComments(comment.body);
 
           // Replace image URLs with local paths if we have a mapping
           if (imageUrlMap) {

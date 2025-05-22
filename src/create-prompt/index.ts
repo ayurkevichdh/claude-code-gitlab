@@ -9,6 +9,7 @@ import {
   formatComments,
   formatReviewComments,
   formatChangedFilesWithSHA,
+  stripHtmlComments,
 } from "../github/data/formatter";
 import {
   isIssuesEvent,
@@ -418,14 +419,14 @@ ${
     eventData.eventName === "pull_request_review") &&
   eventData.commentBody
     ? `<trigger_comment>
-${eventData.commentBody}
+${stripHtmlComments(eventData.commentBody)}
 </trigger_comment>`
     : ""
 }
 ${
   context.directPrompt
     ? `<direct_prompt>
-${context.directPrompt}
+${stripHtmlComments(context.directPrompt)}
 </direct_prompt>`
     : ""
 }
