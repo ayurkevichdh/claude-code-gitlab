@@ -31,62 +31,67 @@ async function parseClaudeReview(response: string): Promise<ReviewSummary> {
   let overallSummary = "";
   let approval: "approve" | "request_changes" | "comment" = "comment";
 
-  // Look for inline comment patterns like:
-  // FILE: src/app.ts LINE: 42 - [ISSUE] Description here
-  // FILE: utils.js LINE: 15 - [SUGGESTION] Description here
+  // Extract inline comments from code blocks first
+  const codeBlockMatch = response.match(/```\s*\n([\s\S]*?)\n```/);
+  let searchText = response;
   
-  const inlinePattern = /FILE:\s*([^\s]+)\s+LINE:\s*(\d+)\s*-\s*\[(\w+)\]\s*(.+?)(?=\n(?:FILE:|$|##))/gs;
-  let match;
-  
-  while ((match = inlinePattern.exec(response)) !== null) {
-    const [, file, line, severityRaw, comment] = match;
-    const severity = severityRaw.toLowerCase() === "critical" ? "critical" 
-                   : severityRaw.toLowerCase() === "issue" ? "issue" 
-                   : "suggestion";
-    
-    inlineComments.push({
-      file: file.trim(),
-      line: parseInt(line),
-      comment: comment.trim(),
-      severity
-    });
-    console.log(`📝 Found inline comment: ${file}:${line} - ${severity}`);
+  if (codeBlockMatch) {
+    console.log("📦 Found code block with inline comments");
+    searchText = codeBlockMatch[1]; // Use content inside code block
   }
-
-  // Try alternative patterns if the primary one didn't work
-  if (inlineComments.length === 0) {
-    console.log("🔄 Primary pattern failed, trying alternative patterns...");
+  
+  // Look for inline comment patterns like:
+  // .gitlab-ci.yml LINE: 15 - [SUGGESTION] Description here
+  // FILE: src/app.ts LINE: 42 - [ISSUE] Description here
+  
+  const patterns = [
+    // Pattern 1: .gitlab-ci.yml LINE: 15 - [SUGGESTION] 
+    /([^\s]+)\s+LINE:\s*(\d+)\s*-\s*\[(\w+)\]\s*(.+?)(?=\n(?:[^\s]+\s+LINE:|$))/gs,
+    // Pattern 2: FILE: path LINE: number - [TYPE]
+    /FILE:\s*([^\s]+)\s+LINE:\s*(\d+)\s*-\s*\[(\w+)\]\s*(.+?)(?=\n(?:FILE:|$|##))/gs,
+    // Pattern 3: simpler format without brackets
+    /([^\s]+)\s+LINE:\s*(\d+)\s*-\s*(.+?)(?=\n(?:[^\s]+\s+LINE:|$))/gs,
+  ];
+  
+  for (let i = 0; i < patterns.length; i++) {
+    const pattern = patterns[i];
+    let match;
     
-    // Try pattern without brackets: FILE: path LINE: number - Description
-    const altPattern1 = /FILE:\s*([^\s]+)\s+LINE:\s*(\d+)\s*-\s*(.+?)(?=\n(?:FILE:|$|##))/gs;
-    while ((match = altPattern1.exec(response)) !== null) {
-      const [, file, line, comment] = match;
+    while ((match = pattern.exec(searchText)) !== null) {
+      const [fullMatch, file, line, severityRaw, comment] = match;
+      
+      // For pattern 3, severity is embedded in comment, try to extract it
+      let severity: "critical" | "issue" | "suggestion" = "suggestion";
+      let cleanComment = comment;
+      
+      if (severityRaw && ["critical", "issue", "suggestion"].includes(severityRaw.toLowerCase())) {
+        severity = severityRaw.toLowerCase() as "critical" | "issue" | "suggestion";
+      } else {
+        // Try to extract severity from comment text
+        const severityMatch = comment.match(/^\[?(CRITICAL|ISSUE|SUGGESTION)\]?\s*(.+)/i);
+        if (severityMatch) {
+          severity = severityMatch[1].toLowerCase() as "critical" | "issue" | "suggestion";
+          cleanComment = severityMatch[2];
+        } else {
+          cleanComment = comment;
+        }
+      }
+      
       inlineComments.push({
         file: file.trim(),
         line: parseInt(line),
-        comment: comment.trim(),
-        severity: "suggestion"
+        comment: cleanComment.trim(),
+        severity
       });
-      console.log(`📝 Found alt inline comment: ${file}:${line}`);
+      console.log(`📝 Found inline comment (pattern ${i+1}): ${file}:${line} - ${severity}`);
     }
     
-    // Try even simpler pattern: filename:line - comment
-    if (inlineComments.length === 0) {
-      const altPattern2 = /([^\s]+):(\d+)\s*-\s*(.+?)(?=\n(?:[^\s]+:\d+|$|##))/gs;
-      while ((match = altPattern2.exec(response)) !== null) {
-        const [, file, line, comment] = match;
-        if (file.includes('.') && !file.includes(' ')) { // Basic file validation
-          inlineComments.push({
-            file: file.trim(),
-            line: parseInt(line),
-            comment: comment.trim(),
-            severity: "suggestion"
-          });
-          console.log(`📝 Found simple inline comment: ${file}:${line}`);
-        }
-      }
+    if (inlineComments.length > 0) {
+      console.log(`✅ Pattern ${i+1} found ${inlineComments.length} comments, stopping search`);
+      break;
     }
   }
+
 
   console.log(`📊 Total inline comments found: ${inlineComments.length}`);
 
