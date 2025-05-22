@@ -76,9 +76,21 @@ export class GitLabProvider implements IProvider {
       const { stdout: headSha } = await $`git rev-parse HEAD`.quiet();
       const headShaClean = headSha.toString().trim();
       
-      // Try to get base SHA from MR data
-      const baseSha = mrData.diff_refs?.base_sha || mrData.sha || headShaClean;
-      const startSha = mrData.diff_refs?.start_sha || mrData.sha || headShaClean;
+      // Get proper SHA values from MR data
+      const baseSha = mrData.diff_refs?.base_sha || headShaClean;
+      const startSha = mrData.diff_refs?.start_sha || headShaClean;
+      
+      // Use the correct API format based on your curl example
+      const position = {
+        base_sha: baseSha,
+        start_sha: startSha,
+        head_sha: headShaClean,
+        old_path: filePath,
+        new_path: filePath,
+        position_type: "text",
+        old_line: null,
+        new_line: line
+      };
       
       const data = await this.request(
         `/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}/discussions`,
@@ -86,18 +98,12 @@ export class GitLabProvider implements IProvider {
           method: "POST",
           body: JSON.stringify({
             body,
-            position: {
-              position_type: "text",
-              new_path: filePath,
-              new_line: line,
-              head_sha: headShaClean,
-              base_sha: baseSha,
-              start_sha: startSha,
-            },
+            position: position,
           }),
         },
       );
       return data.notes?.[0]?.id ?? data.id;
+      
     } catch (error) {
       // Fallback: post as regular comment instead of inline comment
       console.warn(`Failed to post inline comment on ${filePath}:${line}, posting as regular comment:`, error);
