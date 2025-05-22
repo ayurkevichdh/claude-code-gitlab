@@ -7,7 +7,6 @@ import {
   type CommentUpdateInput,
 } from "../github/operations/comment-logic";
 import {
-  parseGitHubContext,
   isPullRequestReviewCommentEvent,
   type ParsedGitHubContext,
 } from "../github/context";

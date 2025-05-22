@@ -37,8 +37,6 @@ describe("parseGitLabContext", () => {
   });
 
   it("throws when CI_PROJECT_ID is missing", () => {
-    expect(() => parseGitLabContext()).toThrow(
-      "GitLab project ID is required",
-    );
+    expect(() => parseGitLabContext()).toThrow("GitLab project ID is required");
   });
 });
