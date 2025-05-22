@@ -1,3 +1,6 @@
+# Complete GitLab CI configuration for Claude Code Review
+# Copy this to your GitLab repository as .gitlab-ci.yml
+
 stages:
   - claude
 
@@ -14,17 +17,18 @@ claude-code:
     - npm install -g bun
     - apt-get update && apt-get install -y curl git
   script:
-    # Clone your claude-code-gitlab repository
+    # Clone the claude-code-gitlab repository
     - git clone https://github.com/ayurkevichdh/claude-code-gitlab.git claude-action
     - cd claude-action && bun install
     
-    # Run Claude preparation (this creates the comment and prompt)
-    - echo "🔧 Running Claude preparation..."
+    # Step 1: Run Claude preparation (creates initial comment and prompt)
+    - echo "🔧 Step 1: Running Claude preparation..."
     - export CLAUDE_COMMENT_ID=$(bun run src/entrypoints/prepare.ts | grep "Comment ID:" | cut -d' ' -f3)
     - echo "Captured Comment ID: $CLAUDE_COMMENT_ID"
     - bun run src/entrypoints/update-progress.ts "Setting up workspace" true
     
-    # Check if prompt was generated
+    # Step 2: Verify prompt generation
+    - echo "🔍 Step 2: Verifying prompt generation..."
     - |
       if [ ! -f "/tmp/claude-prompts/claude-prompt.txt" ]; then
         echo "❌ No prompt file generated"
@@ -33,41 +37,65 @@ claude-code:
       echo "✅ Prompt file generated successfully"
     - bun run src/entrypoints/update-progress.ts "Analyzing request" true
     
-    # Run Claude API (from the claude-action directory)
-    - echo "🤖 Running Claude API..."
+    # Step 3: Run Claude API analysis
+    - echo "🤖 Step 3: Running Claude API analysis..."
     - bun run src/entrypoints/call-claude-api.ts
     - bun run src/entrypoints/update-progress.ts "Implementing changes" true
     
-    # Run enhanced reviewer to post inline comments
-    - echo "📝 Posting inline review comments..."
+    # Step 4: Post inline review comments
+    - echo "📝 Step 4: Posting inline review comments..."
     - bun run src/entrypoints/claude-reviewer.ts
     - bun run src/entrypoints/update-progress.ts "Running tests" true
     
-    # Copy output files to main workspace for artifacts
+    # Step 5: Archive results
+    - echo "📦 Step 5: Archiving results..."
     - cp claude-output.json /builds/$CI_PROJECT_PATH/ || echo "No output file to copy"
     - cp claude-review-results.json /builds/$CI_PROJECT_PATH/ || echo "No review results to copy"
+    - echo "✅ Claude review complete!"
     
   variables:
-    # Required tokens (set in GitLab CI/CD Variables)
+    # Required authentication tokens (set these in GitLab CI/CD Variables)
     GITLAB_TOKEN: $GITLAB_TOKEN
     ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
     
-    # GitLab context
+    # GitLab context (automatically provided by GitLab CI)
     CI_PROJECT_ID: $CI_PROJECT_ID
     CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
     CI_SERVER_URL: $CI_SERVER_URL
     CI_PROJECT_PATH: $CI_PROJECT_PATH
     CI_PIPELINE_URL: $CI_PIPELINE_URL
     
-    # Claude configuration
+    # Claude configuration (customize as needed)
     DIRECT_PROMPT: "Please analyze this merge request and provide feedback on code quality, potential issues, and suggestions for improvement"
     ANTHROPIC_MODEL: "claude-3-7-sonnet-20250219"
+    TRIGGER_PHRASE: "@claude"
     
   artifacts:
+    reports:
+      # Store review results for later analysis
+      junit: claude-review-results.json
     paths:
       - claude-output.json
       - claude-review-results.json
     expire_in: 1 week
     when: always
     
+  # Allow enough time for Claude to analyze larger MRs
   timeout: 30 minutes
+  
+  # Retry on transient failures
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - api_failure
+
+# Optional: Auto-trigger on @claude mentions (requires webhook setup)
+claude-auto:
+  extends: claude-code
+  rules:
+    - if: $CI_MERGE_REQUEST_IID && $CI_MERGE_REQUEST_DESCRIPTION =~ /@claude/
+      when: on_success
+    - if: $CI_MERGE_REQUEST_IID && $CI_COMMIT_MESSAGE =~ /@claude/
+      when: on_success
+  when: manual
