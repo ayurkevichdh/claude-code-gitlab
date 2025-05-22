@@ -225,14 +225,32 @@ ${note.body}
 
 ${process.env.DIRECT_PROMPT || "Please analyze this merge request and provide feedback on code quality, potential issues, and suggestions for improvement."}
 
-Please provide:
-1. Code review feedback
-2. Potential issues or bugs
-3. Suggestions for improvement
-4. Security considerations (if applicable)
-5. Performance considerations (if applicable)
+## Response Format
 
-Be specific and reference line numbers or file names when providing feedback.`;
+Please structure your response in this EXACT format:
+
+### Inline Comments
+For specific issues/suggestions, use this format:
+\`\`\`
+FILE: path/to/file.js LINE: 42 - [ISSUE] Description of the issue here
+FILE: another/file.py LINE: 15 - [SUGGESTION] Suggestion for improvement
+FILE: src/app.ts LINE: 23 - [CRITICAL] Critical security issue found
+\`\`\`
+
+Use these severity levels:
+- **[CRITICAL]** - Security issues, bugs that could cause failures
+- **[ISSUE]** - Code problems, bad practices, potential bugs  
+- **[SUGGESTION]** - Improvements, optimizations, style suggestions
+
+### Overall Summary
+Provide a general assessment covering:
+- Overall code quality
+- Architecture/design feedback
+- Testing recommendations
+- Performance considerations
+- Security assessment
+
+Be specific and reference exact line numbers and file paths when providing feedback.`;
         
         fs.writeFileSync(path.join(promptDir, "claude-prompt.txt"), enhancedPrompt);
         console.log("✅ Enhanced prompt created with MR data");

@@ -35,8 +35,13 @@ claude-code:
     - echo "🤖 Running Claude API..."
     - bun run src/entrypoints/call-claude-api.ts
     
-    # Copy output file to main workspace for artifacts
+    # Run enhanced reviewer to post inline comments
+    - echo "📝 Posting inline review comments..."
+    - bun run src/entrypoints/claude-reviewer.ts
+    
+    # Copy output files to main workspace for artifacts
     - cp claude-output.json /builds/$CI_PROJECT_PATH/ || echo "No output file to copy"
+    - cp claude-review-results.json /builds/$CI_PROJECT_PATH/ || echo "No review results to copy"
     
   variables:
     # Required tokens (set in GitLab CI/CD Variables)
@@ -57,6 +62,7 @@ claude-code:
   artifacts:
     paths:
       - claude-output.json
+      - claude-review-results.json
     expire_in: 1 week
     when: always
     
