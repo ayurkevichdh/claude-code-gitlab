@@ -9,8 +9,10 @@ import * as core from "@actions/core";
 import { appendFileSync } from "fs";
 import { setupGitHubToken } from "../github/token";
 import { checkTriggerAction } from "../github/validation/trigger";
-import { checkHumanActor } from "../github/validation/actor";
-import { checkWritePermissions } from "../github/validation/permissions";
+import { checkHumanActor as checkGitHubHumanActor } from "../github/validation/actor";
+import { checkWritePermissions as checkGitHubWritePermissions } from "../github/validation/permissions";
+import { checkHumanActor as checkGitLabHumanActor } from "../gitlab/validation/actor";
+import { checkWritePermissions as checkGitLabWritePermissions } from "../gitlab/validation/permissions";
 import {
   createJobRunLink,
   createCommentBody,
@@ -22,13 +24,15 @@ import { createPrompt } from "../create-prompt";
 import { createOctokit, type Octokits } from "../github/api/client";
 import { fetchGitHubData } from "../github/data/fetcher";
 import type { ParsedGitHubContext } from "../github/context";
+import type { ParsedGitLabContext } from "../gitlab/context";
+import { GitLabProvider } from "../providers/gitlab";
 import { getProvider } from "../providers/provider-factory";
 import type { IProvider } from "../providers/IProvider";
 
 export async function run(
   provider: IProvider,
-  context: ParsedGitHubContext,
-  octokit: Octokits,
+  context: ParsedGitHubContext | ParsedGitLabContext,
+  octokit?: Octokits,
 ) {
   try {
     // Step 1: Setup GitHub token
@@ -36,10 +40,22 @@ export async function run(
     const octokitClient = octokit ?? createOctokit(githubToken);
 
     // Step 3: Check write permissions
-    const hasWritePermissions = await checkWritePermissions(
-      octokitClient.rest,
-      context,
-    );
+    let hasWritePermissions: boolean;
+    if (provider instanceof GitLabProvider) {
+      const glContext = context as ParsedGitLabContext;
+      const actor = process.env.GITLAB_USER_LOGIN ?? "";
+      hasWritePermissions = await checkGitLabWritePermissions(
+        process.env.GITLAB_TOKEN!,
+        glContext.host,
+        glContext.projectId,
+        actor,
+      );
+    } else {
+      hasWritePermissions = await checkGitHubWritePermissions(
+        octokitClient.rest,
+        context as ParsedGitHubContext,
+      );
+    }
     if (!hasWritePermissions) {
       throw new Error(
         "Actor does not have write permissions to the repository",
@@ -55,7 +71,20 @@ export async function run(
     }
 
     // Step 5: Check if actor is human
-    await checkHumanActor(octokitClient.rest, context);
+    if (provider instanceof GitLabProvider) {
+      const glContext = context as ParsedGitLabContext;
+      const actor = process.env.GITLAB_USER_LOGIN ?? "";
+      await checkGitLabHumanActor(
+        process.env.GITLAB_TOKEN!,
+        glContext.host,
+        actor,
+      );
+    } else {
+      await checkGitHubHumanActor(
+        octokitClient.rest,
+        context as ParsedGitHubContext,
+      );
+    }
 
     // Step 6: Create initial tracking comment
     const jobRunLink = createJobRunLink(
@@ -116,5 +145,5 @@ export async function run(
 
 if (import.meta.main) {
   const { provider, context, octokits } = getProvider();
-  run(provider, context as ParsedGitHubContext, octokits!);
+  run(provider, context as ParsedGitHubContext | ParsedGitLabContext, octokits);
 }
