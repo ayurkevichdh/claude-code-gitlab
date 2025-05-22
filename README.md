@@ -20,6 +20,9 @@ The easiest way to set up this action is through [Claude Code](https://claude.ai
 
 This command will guide you through setting up the GitHub app and required secrets.
 
+For GitLab projects you can run `bun run bin/install-gitlab-app.ts` to automatically
+add the necessary variables and CI file.
+
 **Note**:
 
 - You must be a repository admin to install the GitHub app and add secrets
@@ -92,6 +95,9 @@ To obtain `project_id` outside CI you can query the API:
 curl --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
   "$CI_SERVER_URL/api/v4/projects?search=my-group%2Fmy-project" | jq '.[0].id'
 ```
+
+You can also run `bun run bin/install-gitlab-app.ts` to create the variables
+and commit a starter `.gitlab-ci.yml` file automatically.
 
 See [`examples/gitlab-ci.yml`](./examples/gitlab-ci.yml) for a complete
 pipeline example.
