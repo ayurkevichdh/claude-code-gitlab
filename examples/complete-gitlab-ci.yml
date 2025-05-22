@@ -1,0 +1,157 @@
+stages:
+  - claude
+
+variables:
+  # Set platform to GitLab
+  CI_PLATFORM: "gitlab"
+
+# Claude AI code assistance for merge requests
+claude-code:
+  stage: claude
+  image: node:20
+  rules:
+    # Trigger on merge request events (manual for now)
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+  before_script:
+    # Install required tools
+    - npm install -g bun
+    - apt-get update && apt-get install -y curl git
+  script:
+    # Clone the claude-code-gitlab repository
+    - git clone https://github.com/ayurkevichdh/claude-code-gitlab.git claude-action
+    - cd claude-action
+    
+    # Install dependencies
+    - bun install
+    
+    # Run Claude preparation step
+    - echo "🔧 Running Claude preparation..."
+    - bun run src/entrypoints/prepare.ts
+    
+    # Check if trigger was detected
+    - |
+      if [ ! -f "/tmp/claude-prompts/claude-prompt.txt" ]; then
+        echo "❌ No prompt file generated - trigger may not have been detected"
+        exit 1
+      fi
+    
+    # Install Claude Code CLI (using the official Anthropic installation)
+    - echo "📦 Installing Claude Code CLI..."
+    - |
+      # Install Claude Code CLI from npm or direct download
+      # Option 1: If available via npm
+      npm install -g @anthropic-ai/claude-code || echo "Claude Code CLI not available via npm"
+      
+      # Option 2: Direct installation (update URL when available)
+      # curl -L "https://github.com/anthropics/claude-code/releases/latest/download/claude-code-linux" -o /usr/local/bin/claude-code
+      # chmod +x /usr/local/bin/claude-code
+    
+    # Set up workspace for Claude
+    - echo "🏗️ Setting up Claude workspace..."
+    - |
+      # Ensure Claude has access to the repository
+      cd /builds/$CI_PROJECT_PATH
+      
+      # Set git configuration for Claude
+      git config --global user.email "claude@anthropic.com"
+      git config --global user.name "Claude AI"
+      
+      # Checkout the MR branch if it exists
+      if [ -n "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" ]; then
+        git checkout $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME || echo "Could not checkout source branch"
+      fi
+    
+    # Run Claude Code with the generated prompt
+    - echo "🤖 Running Claude Code..."
+    - |
+      cd /builds/$CI_PROJECT_PATH
+      
+      # Try different methods to run Claude Code
+      if command -v claude-code >/dev/null 2>&1; then
+        echo "Using installed Claude Code CLI"
+        claude-code \
+          --prompt-file /tmp/claude-prompts/claude-prompt.txt \
+          --timeout 1800 \
+          --output-file claude-output.json
+      else
+        echo "⚠️ Claude Code CLI not available - using API fallback"
+        cd /builds/$CI_PROJECT_PATH/claude-action
+        bun run src/entrypoints/call-claude-api.ts
+      fi
+    
+    # Update GitLab MR with results
+    - echo "📝 Updating merge request with results..."
+    - cd /builds/$CI_PROJECT_PATH/claude-action
+    - bun run src/entrypoints/update-gitlab-comment.ts
+    
+  variables:
+    # Required authentication tokens
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+    
+    # GitLab context (auto-provided by GitLab CI)
+    CI_PROJECT_ID: $CI_PROJECT_ID
+    CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
+    CI_SERVER_URL: $CI_SERVER_URL
+    CI_PROJECT_PATH: $CI_PROJECT_PATH
+    CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME
+    CI_MERGE_REQUEST_TARGET_BRANCH_NAME: $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    
+    # Claude configuration
+    TRIGGER_PHRASE: "@claude"
+    DIRECT_PROMPT: "Please analyze this merge request and provide feedback on code quality, potential issues, and suggestions for improvement"
+    ANTHROPIC_MODEL: "claude-3-7-sonnet-20250219"
+    
+    # Additional settings
+    ALLOWED_TOOLS: ""
+    CUSTOM_INSTRUCTIONS: ""
+    TIMEOUT_MINUTES: "30"
+    
+  artifacts:
+    reports:
+      # Capture Claude output
+      junit: claude-report.xml
+    paths:
+      - claude-output.json
+      - claude-action/claude-output.json
+      - /tmp/claude-prompts/
+    expire_in: 1 week
+    when: always
+    
+  # Retry on failure (network issues, etc.)
+  retry:
+    max: 2
+    when:
+      - runner_system_failure
+      - api_failure
+      
+  # Set timeout for long-running Claude operations
+  timeout: 45 minutes
+
+# Optional: Cleanup job to clean up old artifacts
+cleanup-claude-artifacts:
+  stage: claude
+  image: alpine:latest
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: delayed
+      start_in: 1 week
+  script:
+    - echo "Cleaning up old Claude artifacts..."
+    # Add cleanup logic here if needed
+  when: manual
+
+# Optional: Claude webhook trigger (for automatic execution)
+claude-webhook:
+  stage: claude
+  image: node:20
+  rules:
+    # Automatically trigger when MR is created or updated with @claude mention
+    - if: $CI_MERGE_REQUEST_EVENT_TYPE == "merge_request" && $CI_MERGE_REQUEST_DESCRIPTION =~ /@claude/
+    - if: $CI_MERGE_REQUEST_EVENT_TYPE == "note" && $CI_COMMIT_MESSAGE =~ /@claude/
+  script:
+    - echo "Auto-triggering Claude based on webhook..."
+    # Same script as above but without manual trigger
+  extends: claude-code
+  when: on_success

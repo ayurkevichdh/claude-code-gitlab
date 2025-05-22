@@ -1,0 +1,63 @@
+stages:
+  - claude
+
+variables:
+  CI_PLATFORM: "gitlab"
+
+claude-code:
+  stage: claude
+  image: node:20
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+  before_script:
+    - npm install -g bun
+    - apt-get update && apt-get install -y curl git
+  script:
+    # Clone your claude-code-gitlab repository
+    - git clone https://github.com/ayurkevichdh/claude-code-gitlab.git claude-action
+    - cd claude-action && bun install
+    
+    # Run Claude preparation (this creates the comment and prompt)
+    - echo "🔧 Running Claude preparation..."
+    - export CLAUDE_COMMENT_ID=$(bun run src/entrypoints/prepare.ts | grep "Comment ID:" | cut -d' ' -f3)
+    - echo "Captured Comment ID: $CLAUDE_COMMENT_ID"
+    
+    # Check if prompt was generated
+    - |
+      if [ ! -f "/tmp/claude-prompts/claude-prompt.txt" ]; then
+        echo "❌ No prompt file generated"
+        exit 1
+      fi
+      echo "✅ Prompt file generated successfully"
+    
+    # Run Claude API (from the claude-action directory)
+    - echo "🤖 Running Claude API..."
+    - bun run src/entrypoints/call-claude-api.ts
+    
+    # Copy output file to main workspace for artifacts
+    - cp claude-output.json /builds/$CI_PROJECT_PATH/ || echo "No output file to copy"
+    
+  variables:
+    # Required tokens (set in GitLab CI/CD Variables)
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+    
+    # GitLab context
+    CI_PROJECT_ID: $CI_PROJECT_ID
+    CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
+    CI_SERVER_URL: $CI_SERVER_URL
+    CI_PROJECT_PATH: $CI_PROJECT_PATH
+    CI_PIPELINE_URL: $CI_PIPELINE_URL
+    
+    # Claude configuration
+    DIRECT_PROMPT: "Please analyze this merge request and provide feedback on code quality, potential issues, and suggestions for improvement"
+    ANTHROPIC_MODEL: "claude-3-7-sonnet-20250219"
+    
+  artifacts:
+    paths:
+      - claude-output.json
+    expire_in: 1 week
+    when: always
+    
+  timeout: 30 minutes

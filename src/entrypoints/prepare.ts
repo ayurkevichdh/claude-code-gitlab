@@ -118,6 +118,15 @@ export async function run(
     if (githubOutput) {
       appendFileSync(githubOutput, `claude_comment_id=${commentId}\n`);
     }
+    
+    // Also set as environment variable for GitLab
+    process.env.CLAUDE_COMMENT_ID = commentId.toString();
+    console.log(`Comment ID: ${commentId}`);
+    
+    // Output for GitLab CI to capture
+    if (isGitLab) {
+      console.log(`CLAUDE_COMMENT_ID=${commentId}`);
+    }
 
     if (!isGitLab) {
       // GitHub-specific steps
