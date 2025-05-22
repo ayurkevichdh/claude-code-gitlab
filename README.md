@@ -78,6 +78,9 @@ Follow these steps to run the action in GitLab CI/CD:
    npx claude-code-action --provider gitlab --project-id $CI_PROJECT_ID \
    --mr-iid $CI_MERGE_REQUEST_IID --gitlab-host $CI_SERVER_URL
    ```
+4. **Branch handling**
+   - Open merge requests are checked out directly.
+   - Closed or merged requests create a new `claude/mr-<iid>-TIMESTAMP` branch.
 
 See [`examples/gitlab-ci.yml`](./examples/gitlab-ci.yml) for a complete
 pipeline example.
