@@ -1,14 +1,67 @@
 stages:
   - claude
 
+variables:
+  # Set platform to GitLab
+  CI_PLATFORM: "gitlab"
+
+# Claude AI code assistance for merge requests
 claude-code:
   stage: claude
   image: node:20
   rules:
-    - if: $CI_MERGE_REQUEST_IID
+    # Trigger on merge request events with @claude mention
+    - if: $CI_MERGE_REQUEST_IID && $CI_MERGE_REQUEST_EVENT_TYPE == "merge_request"
+      when: manual
+    # Trigger on merge request note events (comments)
+    - if: $CI_MERGE_REQUEST_IID && $CI_MERGE_REQUEST_EVENT_TYPE == "note"
+      when: manual
   script:
-    - npx claude-code-action --provider gitlab --project-id $CI_PROJECT_ID \
-      --mr-iid $CI_MERGE_REQUEST_IID --gitlab-host $CI_SERVER_URL
+    # Setup Node.js and install dependencies
+    - npm install -g bun
+    - git clone https://github.com/yourusername/claude-code-gitlab.git claude-action
+    - cd claude-action && bun install
+    
+    # Run Claude preparation step
+    - bun run src/entrypoints/prepare.ts
+    
+    # Run Claude Code (would need actual claude-code binary)
+    # - claude-code --prompt-file /tmp/claude-prompts/claude-prompt.txt
+    
   variables:
+    # Required tokens
     GITLAB_TOKEN: $GITLAB_TOKEN
     ANTHROPIC_API_KEY: $ANTHROPIC_API_KEY
+    
+    # GitLab context (auto-provided by GitLab CI)
+    CI_PROJECT_ID: $CI_PROJECT_ID
+    CI_MERGE_REQUEST_IID: $CI_MERGE_REQUEST_IID
+    CI_SERVER_URL: $CI_SERVER_URL
+    
+    # Claude configuration
+    TRIGGER_PHRASE: "@claude"
+    ANTHROPIC_MODEL: "claude-3-7-sonnet-20250219"
+    
+  artifacts:
+    reports:
+      # Capture any Claude output files
+      junit: claude-report.xml
+    paths:
+      - claude-output.json
+    expire_in: 1 week
+    when: always
+
+# Alternative: Use as external pipeline trigger
+claude-webhook:
+  stage: claude
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - "**/*.ts"
+        - "**/*.js"
+        - "**/*.py"
+  trigger:
+    # Would trigger external GitHub Actions workflow
+    # configured to handle GitLab webhooks
+    project: yourusername/claude-code-gitlab
+    strategy: depend

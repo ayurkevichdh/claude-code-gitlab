@@ -13,6 +13,25 @@ inputs:
     description: "The assignee username that triggers the action (e.g. @claude)"
     required: false
 
+  # GitLab configuration
+  provider:
+    description: "Platform provider: 'github' or 'gitlab'"
+    required: false
+    default: "github"
+  gitlab_token:
+    description: "GitLab access token with API permissions"
+    required: false
+  gitlab_host:
+    description: "GitLab host URL (defaults to https://gitlab.com)"
+    required: false
+    default: "https://gitlab.com"
+  project_id:
+    description: "GitLab project ID (auto-detected from CI_PROJECT_ID if not provided)"
+    required: false
+  mr_iid:
+    description: "GitLab merge request IID (auto-detected from CI_MERGE_REQUEST_IID if not provided)"
+    required: false
+
   # Claude Code configuration
   anthropic_model:
     description: "Model to use (provider-specific format required for Bedrock/Vertex)"
@@ -88,6 +107,13 @@ runs:
         DIRECT_PROMPT: ${{ inputs.direct_prompt }}
         OVERRIDE_GITHUB_TOKEN: ${{ inputs.github_token }}
         GITHUB_RUN_ID: ${{ github.run_id }}
+        
+        # GitLab configuration
+        CI_PLATFORM: ${{ inputs.provider }}
+        GITLAB_TOKEN: ${{ inputs.gitlab_token }}
+        GITLAB_HOST: ${{ inputs.gitlab_host }}
+        CI_PROJECT_ID: ${{ inputs.project_id }}
+        CI_MERGE_REQUEST_IID: ${{ inputs.mr_iid }}
 
     - name: Run Claude Code
       id: claude-code
