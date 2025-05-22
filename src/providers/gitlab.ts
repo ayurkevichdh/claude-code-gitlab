@@ -66,24 +66,48 @@ export class GitLabProvider implements IProvider {
     body: string,
   ): Promise<number> {
     if (!this.context.mrIid) throw new Error("mrIid required");
-    const { stdout } = await $`git rev-parse HEAD`.quiet();
-    const headSha = stdout.toString().trim();
-    const data = await this.request(
-      `/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}/discussions`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          body,
-          position: {
-            position_type: "text",
-            new_path: filePath,
-            new_line: line,
-            head_sha: headSha,
-          },
-        }),
-      },
-    );
-    return data.notes?.[0]?.id ?? data.id;
+    
+    try {
+      // Get the MR details to find base and head SHAs
+      const mrData = await this.request(
+        `/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}`
+      );
+      
+      const { stdout: headSha } = await $`git rev-parse HEAD`.quiet();
+      const headShaClean = headSha.toString().trim();
+      
+      // Try to get base SHA from MR data
+      const baseSha = mrData.diff_refs?.base_sha || mrData.sha || headShaClean;
+      const startSha = mrData.diff_refs?.start_sha || mrData.sha || headShaClean;
+      
+      const data = await this.request(
+        `/projects/${encodeURIComponent(this.context.projectId)}/merge_requests/${this.context.mrIid}/discussions`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            body,
+            position: {
+              position_type: "text",
+              new_path: filePath,
+              new_line: line,
+              head_sha: headShaClean,
+              base_sha: baseSha,
+              start_sha: startSha,
+            },
+          }),
+        },
+      );
+      return data.notes?.[0]?.id ?? data.id;
+    } catch (error) {
+      // Fallback: post as regular comment instead of inline comment
+      console.warn(`Failed to post inline comment on ${filePath}:${line}, posting as regular comment:`, error);
+      
+      const fallbackBody = `**Comment on \`${filePath}\` line ${line}:**
+
+${body}`;
+      
+      return await this.createProgressComment(fallbackBody);
+    }
   }
 
   async pushFixupCommit(message: string): Promise<string> {

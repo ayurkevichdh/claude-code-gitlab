@@ -89,6 +89,8 @@ async function postReviewComments() {
     
     // Post inline comments
     const postedComments: number[] = [];
+    const failedComments: ReviewComment[] = [];
+    
     for (const comment of review.inlineComments) {
       try {
         console.log(`📝 Posting inline comment on ${comment.file}:${comment.line}`);
@@ -108,13 +110,30 @@ ${comment.comment}
           formattedComment
         );
         postedComments.push(commentId);
+        console.log(`✅ Posted inline comment ${commentId}`);
         
         // Small delay to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 200));
         
       } catch (error) {
         console.error(`❌ Failed to post inline comment on ${comment.file}:${comment.line}:`, error);
+        failedComments.push(comment);
       }
+    }
+    
+    // If some inline comments failed, include them in the summary
+    let failedCommentsText = "";
+    if (failedComments.length > 0) {
+      failedCommentsText = `
+
+## Failed Inline Comments
+
+The following comments couldn't be posted as inline comments:
+
+${failedComments.map(c => `
+**${c.file}:${c.line}** - ${c.severity.toUpperCase()}
+${c.comment}
+`).join('\n')}`;
     }
 
     // Create summary comment
@@ -126,11 +145,12 @@ ${comment.comment}
 
 ## Summary
 
-${review.overallSummary}
+${review.overallSummary}${failedCommentsText}
 
 ## Review Statistics
 
 - **Inline comments posted:** ${postedComments.length}
+- **Failed inline comments:** ${failedComments.length}
 - **Issues found:** ${review.inlineComments.filter(c => c.severity === "issue" || c.severity === "critical").length}
 - **Suggestions:** ${review.inlineComments.filter(c => c.severity === "suggestion").length}
 - **Recommendation:** ${review.approval === "approve" ? "✅ Approve" 
