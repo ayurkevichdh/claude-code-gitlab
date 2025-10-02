@@ -39,6 +39,7 @@ claude-code-review:
     - if: $CI_MERGE_REQUEST_IID
       when: manual
   before_script:
+    - apt-get update && apt-get install -y curl git
     - npm install -g bun
     - git clone https://github.com/ayurkevichdh/claude-code-gitlab.git claude-action
     - cd claude-action
