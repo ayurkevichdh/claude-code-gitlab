@@ -1,12 +1,12 @@
+import type { GitHubContext } from "../github/context";
+
 export type CommonFields = {
   repository: string;
   claudeCommentId: string;
   triggerPhrase: string;
   triggerUsername?: string;
-  customInstructions?: string;
-  allowedTools?: string;
-  disallowedTools?: string;
-  directPrompt?: string;
+  prompt?: string;
+  claudeBranch?: string;
 };
 
 type PullRequestReviewCommentEvent = {
@@ -16,7 +16,7 @@ type PullRequestReviewCommentEvent = {
   commentId?: string; // May be present for review comments
   commentBody: string;
   claudeBranch?: string;
-  defaultBranch?: string;
+  baseBranch?: string;
 };
 
 type PullRequestReviewEvent = {
@@ -25,7 +25,7 @@ type PullRequestReviewEvent = {
   prNumber: string;
   commentBody: string;
   claudeBranch?: string;
-  defaultBranch?: string;
+  baseBranch?: string;
 };
 
 type IssueCommentEvent = {
@@ -33,7 +33,7 @@ type IssueCommentEvent = {
   commentId: string;
   issueNumber: string;
   isPR: false;
-  defaultBranch: string;
+  baseBranch: string;
   claudeBranch: string;
   commentBody: string;
 };
@@ -46,7 +46,7 @@ type PullRequestCommentEvent = {
   isPR: true;
   commentBody: string;
   claudeBranch?: string;
-  defaultBranch?: string;
+  baseBranch?: string;
 };
 
 type IssueOpenedEvent = {
@@ -54,7 +54,7 @@ type IssueOpenedEvent = {
   eventAction: "opened";
   isPR: false;
   issueNumber: string;
-  defaultBranch: string;
+  baseBranch: string;
   claudeBranch: string;
 };
 
@@ -63,18 +63,35 @@ type IssueAssignedEvent = {
   eventAction: "assigned";
   isPR: false;
   issueNumber: string;
-  defaultBranch: string;
+  baseBranch: string;
   claudeBranch: string;
-  assigneeTrigger: string;
+  assigneeTrigger?: string;
 };
 
-type PullRequestEvent = {
-  eventName: "pull_request";
+type IssueLabeledEvent = {
+  eventName: "issues";
+  eventAction: "labeled";
+  isPR: false;
+  issueNumber: string;
+  baseBranch: string;
+  claudeBranch: string;
+  labelTrigger: string;
+};
+
+type PullRequestBaseEvent = {
   eventAction?: string; // opened, synchronize, etc.
   isPR: true;
   prNumber: string;
   claudeBranch?: string;
-  defaultBranch?: string;
+  baseBranch?: string;
+};
+
+type PullRequestEvent = PullRequestBaseEvent & {
+  eventName: "pull_request";
+};
+
+type PullRequestTargetEvent = PullRequestBaseEvent & {
+  eventName: "pull_request_target";
 };
 
 // Union type for all possible event types
@@ -85,9 +102,12 @@ export type EventData =
   | IssueCommentEvent
   | IssueOpenedEvent
   | IssueAssignedEvent
-  | PullRequestEvent;
+  | IssueLabeledEvent
+  | PullRequestEvent
+  | PullRequestTargetEvent;
 
 // Combined type with separate eventData field
 export type PreparedContext = CommonFields & {
   eventData: EventData;
+  githubContext?: GitHubContext;
 };

@@ -1,23 +1,119 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
+import type { Octokits } from "../api/client";
+import { ISSUE_QUERY, PR_QUERY, USER_QUERY } from "../api/queries/github";
+import {
+  isIssueCommentEvent,
+  isPullRequestReviewEvent,
+  isPullRequestReviewCommentEvent,
+  type ParsedGitHubContext,
+} from "../context";
 import type {
-  GitHubPullRequest,
-  GitHubIssue,
   GitHubComment,
   GitHubFile,
+  GitHubIssue,
+  GitHubPullRequest,
   GitHubReview,
-  PullRequestQueryResponse,
   IssueQueryResponse,
+  PullRequestQueryResponse,
 } from "../types";
-import { PR_QUERY, ISSUE_QUERY } from "../api/queries/github";
-import type { Octokits } from "../api/client";
-import { downloadCommentImages } from "../utils/image-downloader";
 import type { CommentWithImages } from "../utils/image-downloader";
+import { downloadCommentImages } from "../utils/image-downloader";
+
+/**
+ * Extracts the trigger timestamp from the GitHub webhook payload.
+ * This timestamp represents when the triggering comment/review/event was created.
+ *
+ * @param context - Parsed GitHub context from webhook
+ * @returns ISO timestamp string or undefined if not available
+ */
+export function extractTriggerTimestamp(
+  context: ParsedGitHubContext,
+): string | undefined {
+  if (isIssueCommentEvent(context)) {
+    return context.payload.comment.created_at || undefined;
+  } else if (isPullRequestReviewEvent(context)) {
+    return context.payload.review.submitted_at || undefined;
+  } else if (isPullRequestReviewCommentEvent(context)) {
+    return context.payload.comment.created_at || undefined;
+  }
+
+  return undefined;
+}
+
+/**
+ * Filters comments to only include those that existed in their final state before the trigger time.
+ * This prevents malicious actors from editing comments after the trigger to inject harmful content.
+ *
+ * @param comments - Array of GitHub comments to filter
+ * @param triggerTime - ISO timestamp of when the trigger comment was created
+ * @returns Filtered array of comments that were created and last edited before trigger time
+ */
+export function filterCommentsToTriggerTime<
+  T extends { createdAt: string; updatedAt?: string; lastEditedAt?: string },
+>(comments: T[], triggerTime: string | undefined): T[] {
+  if (!triggerTime) return comments;
+
+  const triggerTimestamp = new Date(triggerTime).getTime();
+
+  return comments.filter((comment) => {
+    // Comment must have been created before trigger (not at or after)
+    const createdTimestamp = new Date(comment.createdAt).getTime();
+    if (createdTimestamp >= triggerTimestamp) {
+      return false;
+    }
+
+    // If comment has been edited, the most recent edit must have occurred before trigger
+    // Use lastEditedAt if available, otherwise fall back to updatedAt
+    const lastEditTime = comment.lastEditedAt || comment.updatedAt;
+    if (lastEditTime) {
+      const lastEditTimestamp = new Date(lastEditTime).getTime();
+      if (lastEditTimestamp >= triggerTimestamp) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+/**
+ * Filters reviews to only include those that existed in their final state before the trigger time.
+ * Similar to filterCommentsToTriggerTime but for GitHubReview objects which use submittedAt instead of createdAt.
+ */
+export function filterReviewsToTriggerTime<
+  T extends { submittedAt: string; updatedAt?: string; lastEditedAt?: string },
+>(reviews: T[], triggerTime: string | undefined): T[] {
+  if (!triggerTime) return reviews;
+
+  const triggerTimestamp = new Date(triggerTime).getTime();
+
+  return reviews.filter((review) => {
+    // Review must have been submitted before trigger (not at or after)
+    const submittedTimestamp = new Date(review.submittedAt).getTime();
+    if (submittedTimestamp >= triggerTimestamp) {
+      return false;
+    }
+
+    // If review has been edited, the most recent edit must have occurred before trigger
+    const lastEditTime = review.lastEditedAt || review.updatedAt;
+    if (lastEditTime) {
+      const lastEditTimestamp = new Date(lastEditTime).getTime();
+      if (lastEditTimestamp >= triggerTimestamp) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
 
 type FetchDataParams = {
   octokits: Octokits;
   repository: string;
   prNumber: string;
   isPR: boolean;
+  triggerUsername?: string;
+  triggerTime?: string;
 };
 
 export type GitHubFileWithSHA = GitHubFile & {
@@ -31,6 +127,7 @@ export type FetchDataResult = {
   changedFilesWithSHA: GitHubFileWithSHA[];
   reviewData: { nodes: GitHubReview[] } | null;
   imageUrlMap: Map<string, string>;
+  triggerDisplayName?: string | null;
 };
 
 export async function fetchGitHubData({
@@ -38,6 +135,8 @@ export async function fetchGitHubData({
   repository,
   prNumber,
   isPR,
+  triggerUsername,
+  triggerTime,
 }: FetchDataParams): Promise<FetchDataResult> {
   const [owner, repo] = repository.split("/");
   if (!owner || !repo) {
@@ -65,7 +164,10 @@ export async function fetchGitHubData({
         const pullRequest = prResult.repository.pullRequest;
         contextData = pullRequest;
         changedFiles = pullRequest.files.nodes || [];
-        comments = pullRequest.comments?.nodes || [];
+        comments = filterCommentsToTriggerTime(
+          pullRequest.comments?.nodes || [],
+          triggerTime,
+        );
         reviewData = pullRequest.reviews || [];
 
         console.log(`Successfully fetched PR #${prNumber} data`);
@@ -85,7 +187,10 @@ export async function fetchGitHubData({
 
       if (issueResult.repository.issue) {
         contextData = issueResult.repository.issue;
-        comments = contextData?.comments?.nodes || [];
+        comments = filterCommentsToTriggerTime(
+          contextData?.comments?.nodes || [],
+          triggerTime,
+        );
 
         console.log(`Successfully fetched issue #${prNumber} data`);
       } else {
@@ -101,9 +206,17 @@ export async function fetchGitHubData({
   let changedFilesWithSHA: GitHubFileWithSHA[] = [];
   if (isPR && changedFiles.length > 0) {
     changedFilesWithSHA = changedFiles.map((file) => {
+      // Don't compute SHA for deleted files
+      if (file.changeType === "DELETED") {
+        return {
+          ...file,
+          sha: "deleted",
+        };
+      }
+
       try {
         // Use git hash-object to compute the SHA for the current file content
-        const sha = execSync(`git hash-object "${file.path}"`, {
+        const sha = execFileSync("git", ["hash-object", file.path], {
           encoding: "utf-8",
         }).trim();
         return {
@@ -123,32 +236,42 @@ export async function fetchGitHubData({
 
   // Prepare all comments for image processing
   const issueComments: CommentWithImages[] = comments
-    .filter((c) => c.body)
+    .filter((c) => c.body && !c.isMinimized)
     .map((c) => ({
       type: "issue_comment" as const,
       id: c.databaseId,
       body: c.body,
     }));
 
-  const reviewBodies: CommentWithImages[] =
-    reviewData?.nodes
-      ?.filter((r) => r.body)
-      .map((r) => ({
-        type: "review_body" as const,
-        id: r.databaseId,
-        pullNumber: prNumber,
-        body: r.body,
-      })) ?? [];
+  // Filter review bodies to trigger time
+  const filteredReviewBodies = reviewData?.nodes
+    ? filterReviewsToTriggerTime(reviewData.nodes, triggerTime).filter(
+        (r) => r.body,
+      )
+    : [];
 
-  const reviewComments: CommentWithImages[] =
-    reviewData?.nodes
-      ?.flatMap((r) => r.comments?.nodes ?? [])
-      .filter((c) => c.body)
-      .map((c) => ({
-        type: "review_comment" as const,
-        id: c.databaseId,
-        body: c.body,
-      })) ?? [];
+  const reviewBodies: CommentWithImages[] = filteredReviewBodies.map((r) => ({
+    type: "review_body" as const,
+    id: r.databaseId,
+    pullNumber: prNumber,
+    body: r.body,
+  }));
+
+  // Filter review comments to trigger time
+  const allReviewComments =
+    reviewData?.nodes?.flatMap((r) => r.comments?.nodes ?? []) ?? [];
+  const filteredReviewComments = filterCommentsToTriggerTime(
+    allReviewComments,
+    triggerTime,
+  );
+
+  const reviewComments: CommentWithImages[] = filteredReviewComments
+    .filter((c) => c.body && !c.isMinimized)
+    .map((c) => ({
+      type: "review_comment" as const,
+      id: c.databaseId,
+      body: c.body,
+    }));
 
   // Add the main issue/PR body if it has content
   const mainBody: CommentWithImages[] = contextData.body
@@ -183,6 +306,12 @@ export async function fetchGitHubData({
     allComments,
   );
 
+  // Fetch trigger user display name if username is provided
+  let triggerDisplayName: string | null | undefined;
+  if (triggerUsername) {
+    triggerDisplayName = await fetchUserDisplayName(octokits, triggerUsername);
+  }
+
   return {
     contextData,
     comments,
@@ -190,5 +319,27 @@ export async function fetchGitHubData({
     changedFilesWithSHA,
     reviewData,
     imageUrlMap,
+    triggerDisplayName,
   };
+}
+
+export type UserQueryResponse = {
+  user: {
+    name: string | null;
+  };
+};
+
+export async function fetchUserDisplayName(
+  octokits: Octokits,
+  login: string,
+): Promise<string | null> {
+  try {
+    const result = await octokits.graphql<UserQueryResponse>(USER_QUERY, {
+      login,
+    });
+    return result.user.name;
+  } catch (error) {
+    console.warn(`Failed to fetch user display name for ${login}:`, error);
+    return null;
+  }
 }

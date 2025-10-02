@@ -93,31 +93,76 @@ describe("GitLabProvider", () => {
   });
 
   test("addInlineComment posts with position info", async () => {
-    const commands = mockShell(["abc123\n"]);
+    const commands = mockShell();
     ({ GitLabProvider } = await import(`../src/providers/gitlab?${Math.random()}`));
     const provider = new GitLabProvider(token, context);
-    fetchSpy = jest.fn().mockResolvedValue({ notes: [{ id: 7 }] });
+
+    const paths: string[] = [];
+    fetchSpy = jest.fn().mockImplementation((url: string, options?: any) => {
+      return { url, options };
+    });
+
     (provider as any).request = async (path: string, options: any) => {
-      const url = `${context.host}/api/v4${path}`;
-      await fetchSpy(url, options);
-      return { notes: [{ id: 7 }] };
+      paths.push(path);
+
+      if (path.endsWith(`/merge_requests/${context.mrIid}`)) {
+        return {
+          diff_refs: {
+            base_sha: "base-sha",
+            start_sha: "start-sha",
+            head_sha: "head-sha",
+          },
+        };
+      }
+
+      if (path.endsWith(`/merge_requests/${context.mrIid}/changes`)) {
+        return {
+          changes: [
+            {
+              new_path: "src/app.ts",
+              diff: [
+                "@@ -0,0 +1,3 @@",
+                "+line1",
+                "+line2",
+                "+line3",
+              ].join("\n"),
+            },
+          ],
+        };
+      }
+
+      if (path.endsWith(`/merge_requests/${context.mrIid}/discussions`)) {
+        await fetchSpy(`${context.host}/api/v4${path}`, options);
+        return { notes: [{ id: 7 }] };
+      }
+
+      throw new Error(`Unexpected request path: ${path}`);
     };
 
     const id = await provider.addInlineComment("src/app.ts", 3, "note");
 
-    expect(commands).toEqual(["git rev-parse HEAD"]);
+    expect(commands).toEqual([]);
+    expect(paths).toEqual([
+      `/projects/${encodeURIComponent(context.projectId)}/merge_requests/${context.mrIid}`,
+      `/projects/${encodeURIComponent(context.projectId)}/merge_requests/${context.mrIid}/changes`,
+      `/projects/${encodeURIComponent(context.projectId)}/merge_requests/${context.mrIid}/discussions`,
+    ]);
     expect(id).toBe(7);
     expect(fetchSpy).toHaveBeenCalledWith(
-      `${context.host}/api/v4/projects/1/merge_requests/10/discussions`,
+      `${context.host}/api/v4/projects/${encodeURIComponent(context.projectId)}/merge_requests/${context.mrIid}/discussions`,
       {
         method: "POST",
         body: JSON.stringify({
           body: "note",
           position: {
-            position_type: "text",
+            base_sha: "base-sha",
+            start_sha: "start-sha",
+            head_sha: "head-sha",
+            old_path: "src/app.ts",
             new_path: "src/app.ts",
+            position_type: "text",
+            old_line: null,
             new_line: 3,
-            head_sha: "abc123",
           },
         }),
       },

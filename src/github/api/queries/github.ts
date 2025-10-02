@@ -46,6 +46,9 @@ export const PR_QUERY = `
               login
             }
             createdAt
+            updatedAt
+            lastEditedAt
+            isMinimized
           }
         }
         reviews(first: 100) {
@@ -58,6 +61,8 @@ export const PR_QUERY = `
             body
             state
             submittedAt
+            updatedAt
+            lastEditedAt
             comments(first: 100) {
               nodes {
                 id
@@ -69,6 +74,9 @@ export const PR_QUERY = `
                   login
                 }
                 createdAt
+                updatedAt
+                lastEditedAt
+                isMinimized
               }
             }
           }
@@ -98,9 +106,20 @@ export const ISSUE_QUERY = `
               login
             }
             createdAt
+            updatedAt
+            lastEditedAt
+            isMinimized
           }
         }
       }
+    }
+  }
+`;
+
+export const USER_QUERY = `
+  query($login: String!) {
+    user(login: $login) {
+      name
     }
   }
 `;

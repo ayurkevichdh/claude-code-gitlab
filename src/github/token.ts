@@ -1,63 +1,17 @@
 #!/usr/bin/env bun
 
 import * as core from "@actions/core";
-
-type RetryOptions = {
-  maxAttempts?: number;
-  initialDelayMs?: number;
-  maxDelayMs?: number;
-  backoffFactor?: number;
-};
-
-async function retryWithBackoff<T>(
-  operation: () => Promise<T>,
-  options: RetryOptions = {},
-): Promise<T> {
-  const {
-    maxAttempts = 3,
-    initialDelayMs = 5000,
-    maxDelayMs = 20000,
-    backoffFactor = 2,
-  } = options;
-
-  let delayMs = initialDelayMs;
-  let lastError: Error | undefined;
-
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      console.log(`Attempt ${attempt} of ${maxAttempts}...`);
-      return await operation();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      console.error(`Attempt ${attempt} failed:`, lastError.message);
-
-      if (attempt < maxAttempts) {
-        console.log(`Retrying in ${delayMs / 1000} seconds...`);
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-        delayMs = Math.min(delayMs * backoffFactor, maxDelayMs);
-      }
-    }
-  }
-
-  throw new Error(
-    `Operation failed after ${maxAttempts} attempts. Last error: ${
-      lastError?.message ?? "Unknown error"
-    }`,
-  );
-}
+import { retryWithBackoff } from "../utils/retry";
 
 async function getOidcToken(): Promise<string> {
   try {
     const oidcToken = await core.getIDToken("claude-code-github-action");
 
-    if (!oidcToken) {
-      throw new Error("OIDC token not found");
-    }
-
     return oidcToken;
   } catch (error) {
+    console.error("Failed to get OIDC token:", error);
     throw new Error(
-      `Failed to get OIDC token: ${error instanceof Error ? error.message : String(error)}`,
+      "Could not fetch an OIDC token. Did you remember to add `id-token: write` to your workflow permissions?",
     );
   }
 }
@@ -74,9 +28,37 @@ async function exchangeForAppToken(oidcToken: string): Promise<string> {
   );
 
   if (!response.ok) {
-    throw new Error(
-      `App token exchange failed: ${response.status} ${response.statusText}`,
+    const responseJson = (await response.json()) as {
+      error?: {
+        message?: string;
+        details?: {
+          error_code?: string;
+        };
+      };
+      type?: string;
+      message?: string;
+    };
+
+    // Check for specific workflow validation error codes that should skip the action
+    const errorCode = responseJson.error?.details?.error_code;
+
+    if (errorCode === "workflow_not_found_on_default_branch") {
+      const message =
+        responseJson.message ??
+        responseJson.error?.message ??
+        "Workflow validation failed";
+      core.warning(`Skipping action due to workflow validation: ${message}`);
+      console.log(
+        "Action skipped due to workflow validation error. This is expected when adding Claude Code workflows to new repositories or on PRs with workflow changes. If you're seeing this, your workflow will begin working once you merge your PR.",
+      );
+      core.setOutput("skipped_due_to_workflow_validation_mismatch", "true");
+      process.exit(0);
+    }
+
+    console.error(
+      `App token exchange failed: ${response.status} ${response.statusText} - ${responseJson?.error?.message ?? "Unknown error"}`,
     );
+    throw new Error(`${responseJson?.error?.message ?? "Unknown error"}`);
   }
 
   const appTokenData = (await response.json()) as {
@@ -117,7 +99,10 @@ export async function setupGitHubToken(): Promise<string> {
     core.setOutput("GITHUB_TOKEN", appToken);
     return appToken;
   } catch (error) {
-    core.setFailed(`Failed to setup GitHub token: ${error}`);
+    // Only set failed if we get here - workflow validation errors will exit(0) before this
+    core.setFailed(
+      `Failed to setup GitHub token: ${error}\n\nIf you instead wish to use this action with a custom GitHub token or custom GitHub app, provide a \`github_token\` in the \`uses\` section of the app in your workflow yml file.`,
+    );
     process.exit(1);
   }
 }

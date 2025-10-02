@@ -6,6 +6,7 @@ import { describe, it, expect } from "bun:test";
 import {
   createMockContext,
   mockIssueAssignedContext,
+  mockIssueLabeledContext,
   mockIssueCommentContext,
   mockIssueOpenedContext,
   mockPullRequestReviewContext,
@@ -21,24 +22,26 @@ import type {
 import type { ParsedGitHubContext } from "../src/github/context";
 
 describe("checkContainsTrigger", () => {
-  describe("direct prompt trigger", () => {
-    it("should return true when direct prompt is provided", () => {
+  describe("prompt trigger", () => {
+    it("should return true when prompt is provided", () => {
       const context = createMockContext({
         eventName: "issues",
         eventAction: "opened",
         inputs: {
+          prompt: "Fix the bug in the login form",
           triggerPhrase: "/claude",
           assigneeTrigger: "",
-          directPrompt: "Fix the bug in the login form",
-          allowedTools: "",
-          disallowedTools: "",
-          customInstructions: "",
+          labelTrigger: "",
+          branchPrefix: "claude/",
+          useStickyComment: false,
+          useCommitSigning: false,
+          allowedBots: "",
         },
       });
       expect(checkContainsTrigger(context)).toBe(true);
     });
 
-    it("should return false when direct prompt is empty", () => {
+    it("should return false when prompt is empty", () => {
       const context = createMockContext({
         eventName: "issues",
         eventAction: "opened",
@@ -53,12 +56,14 @@ describe("checkContainsTrigger", () => {
           },
         } as IssuesEvent,
         inputs: {
+          prompt: "",
           triggerPhrase: "/claude",
           assigneeTrigger: "",
-          directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
-          customInstructions: "",
+          labelTrigger: "",
+          branchPrefix: "claude/",
+          useStickyComment: false,
+          useCommitSigning: false,
+          allowedBots: "",
         },
       });
       expect(checkContainsTrigger(context)).toBe(false);
@@ -87,6 +92,11 @@ describe("checkContainsTrigger", () => {
         ...mockIssueAssignedContext,
         payload: {
           ...mockIssueAssignedContext.payload,
+          assignee: {
+            ...(mockIssueAssignedContext.payload as IssuesAssignedEvent)
+              .assignee,
+            login: "otherUser",
+          },
           issue: {
             ...(mockIssueAssignedContext.payload as IssuesAssignedEvent).issue,
             assignee: {
@@ -98,6 +108,39 @@ describe("checkContainsTrigger", () => {
         },
       } as ParsedGitHubContext;
 
+      expect(checkContainsTrigger(context)).toBe(false);
+    });
+  });
+
+  describe("label trigger", () => {
+    it("should return true when issue is labeled with the trigger label", () => {
+      const context = mockIssueLabeledContext;
+      expect(checkContainsTrigger(context)).toBe(true);
+    });
+
+    it("should return false when issue is labeled with a different label", () => {
+      const context = {
+        ...mockIssueLabeledContext,
+        payload: {
+          ...mockIssueLabeledContext.payload,
+          label: {
+            ...(mockIssueLabeledContext.payload as any).label,
+            name: "bug",
+          },
+        },
+      } as ParsedGitHubContext;
+      expect(checkContainsTrigger(context)).toBe(false);
+    });
+
+    it("should return false for non-labeled events", () => {
+      const context = {
+        ...mockIssueLabeledContext,
+        eventAction: "opened",
+        payload: {
+          ...mockIssueLabeledContext.payload,
+          action: "opened",
+        },
+      } as ParsedGitHubContext;
       expect(checkContainsTrigger(context)).toBe(false);
     });
   });
@@ -225,12 +268,14 @@ describe("checkContainsTrigger", () => {
           },
         } as PullRequestEvent,
         inputs: {
+          prompt: "",
           triggerPhrase: "@claude",
           assigneeTrigger: "",
-          directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
-          customInstructions: "",
+          labelTrigger: "",
+          branchPrefix: "claude/",
+          useStickyComment: false,
+          useCommitSigning: false,
+          allowedBots: "",
         },
       });
       expect(checkContainsTrigger(context)).toBe(true);
@@ -252,12 +297,14 @@ describe("checkContainsTrigger", () => {
           },
         } as PullRequestEvent,
         inputs: {
+          prompt: "",
           triggerPhrase: "@claude",
           assigneeTrigger: "",
-          directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
-          customInstructions: "",
+          labelTrigger: "",
+          branchPrefix: "claude/",
+          useStickyComment: false,
+          useCommitSigning: false,
+          allowedBots: "",
         },
       });
       expect(checkContainsTrigger(context)).toBe(true);
@@ -279,12 +326,14 @@ describe("checkContainsTrigger", () => {
           },
         } as PullRequestEvent,
         inputs: {
+          prompt: "",
           triggerPhrase: "@claude",
           assigneeTrigger: "",
-          directPrompt: "",
-          allowedTools: "",
-          disallowedTools: "",
-          customInstructions: "",
+          labelTrigger: "",
+          branchPrefix: "claude/",
+          useStickyComment: false,
+          useCommitSigning: false,
+          allowedBots: "",
         },
       });
       expect(checkContainsTrigger(context)).toBe(false);
@@ -398,17 +447,6 @@ describe("checkContainsTrigger", () => {
         } as ParsedGitHubContext;
         expect(checkContainsTrigger(context)).toBe(expected);
       });
-    });
-  });
-
-  describe("non-matching events", () => {
-    it("should return false for non-matching event type", () => {
-      const context = createMockContext({
-        eventName: "push",
-        eventAction: "created",
-        payload: {} as any,
-      });
-      expect(checkContainsTrigger(context)).toBe(false);
     });
   });
 });
